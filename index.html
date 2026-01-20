@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>QR Scanner → Excel</title>
+
+<script src="https://unpkg.com/html5-qrcode"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+body {
+    font-family: -apple-system, BlinkMacSystemFont, Arial;
+    background: linear-gradient(to bottom, #e3f2fd, #ffffff);
+    margin: 0;
+    padding: 10px;
+    text-align: center;
+}
+
+h2 { color: #0d47a1; }
+
+button {
+    width: 90%;
+    max-width: 320px;
+    padding: 16px;
+    margin: 12px auto;
+    font-size: 20px;
+    border-radius: 14px;
+    border: none;
+    color: white;
+}
+
+#cameraBtn { background: #4caf50; }
+#scannerBtn { background: #ff9800; }
+#cancelBtn { background: #f44336; }
+#saveBtn { background: #2196f3; }
+
+#reader {
+    width: 90%;
+    max-width: 350px;
+    margin: auto;
+    border: 3px solid #2196f3;
+    border-radius: 12px;
+    background: black;
+}
+
+table {
+    width: 100%;
+    margin-top: 15px;
+    background: white;
+    border-collapse: collapse;
+    font-size: 16px;
+}
+
+th, td {
+    border: 1px solid #bbb;
+    padding: 10px;
+}
+
+th { background: #bbdefb; }
+
+#scannerInput {
+    width: 90%;
+    padding: 15px;
+    font-size: 18px;
+    margin-top: 15px;
+    border-radius: 10px;
+    border: 2px solid #2196f3;
+}
+
+#duplicateBox {
+    display: none;
+    position: fixed;
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    border: 3px solid red;
+    padding: 20px;
+    border-radius: 10px;
+    z-index: 1000;
+    width: 80%;
+}
+</style>
+</head>
+
+<body>
+
+<h2>📷 QR Scanner → Excel</h2>
+
+<!-- MODE SELECTION -->
+<div id="modeSelect">
+    <button id="cameraBtn" onclick="selectCamera()">📷 Use Camera (Mobile)</button>
+    <button id="scannerBtn" onclick="selectScanner()">⌨️ Use Scanner (PC)</button>
+</div>
+
+<!-- CAMERA MODE -->
+<div id="cameraMode" style="display:none;">
+    <div id="reader"></div>
+</div>
+
+<!-- SCANNER MODE -->
+<div id="scannerMode" style="display:none;">
+    <input id="scannerInput" placeholder="Scan QR here..." autofocus
+           onkeydown="if(event.key==='Enter') handleScannerInput()">
+</div>
+
+<table>
+<thead>
+<tr><th>Scanned QR Data</th></tr>
+</thead>
+<tbody id="tableBody"></tbody>
+</table>
+
+<button id="cancelBtn" onclick="cancelSession()">❌ Cancel Session</button>
+<button id="saveBtn" onclick="exportToExcel()">💾 Save & Export Excel</button>
+
+<!-- Sounds -->
+<audio id="normalBeep">
+<source src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg">
+</audio>
+
+<audio id="warningBeep">
+<source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg">
+</audio>
+
+<!-- Duplicate Box -->
+<div id="duplicateBox">
+    <p><b>⚠ Duplicate QR Detected</b></p>
+    <p id="dupText"></p>
+    <button style="background:#4caf50" onclick="acceptDuplicate()">Accept</button>
+    <button style="background:#f44336" onclick="rejectDuplicate()">Reject</button>
+</div>
+
+<script>
+
+let scannedData = [];
+let pendingDuplicate = "";
+let html5QrCode;
+
+// Select camera mode
+function selectCamera() {
+    document.getElementById("modeSelect").style.display = "none";
+    document.getElementById("cameraMode").style.display = "block";
+
+    html5QrCode = new Html5Qrcode("reader");
+
+    Html5Qrcode.getCameras().then(cameras => {
+        html5QrCode.start(cameras[0].id, { fps: 10, qrbox: 250 }, onScanSuccess);
+    });
+}
+
+// Select scanner mode
+function selectScanner() {
+    document.getElementById("modeSelect").style.display = "none";
+    document.getElementById("scannerMode").style.display = "block";
+    document.getElementById("scannerInput").focus();
+}
+
+// Scanner input handler
+function handleScannerInput() {
+    let value = document.getElementById("scannerInput").value.trim();
+    document.getElementById("scannerInput").value = "";
+    processScan(value);
+}
+
+// Camera scan handler
+function onScanSuccess(decodedText) {
+    processScan(decodedText);
+}
+
+// Process common scan logic
+function processScan(value) {
+
+    if (scannedData.includes(value)) {
+        document.getElementById("warningBeep").play();
+        pendingDuplicate = value;
+        document.getElementById("dupText").innerText = value;
+        document.getElementById("duplicateBox").style.display = "block";
+        return;
+    }
+
+    addData(value);
+}
+
+// Add data
+function addData(value) {
+    scannedData.push(value);
+    document.getElementById("normalBeep").play();
+
+    let row = document.getElementById("tableBody").insertRow();
+    let cell = row.insertCell(0);
+    cell.innerText = value;
+}
+
+// Duplicate controls
+function acceptDuplicate() { addData(pendingDuplicate); closeDuplicate(); }
+function rejectDuplicate() { closeDuplicate(); }
+function closeDuplicate() {
+    pendingDuplicate = "";
+    document.getElementById("duplicateBox").style.display = "none";
+}
+
+// Cancel
+function cancelSession() {
+    if (confirm("Clear all scanned data?")) {
+        scannedData = [];
+        document.getElementById("tableBody").innerHTML = "";
+    }
+}
+
+// Export
+function exportToExcel() {
+
+    if (scannedData.length === 0) {
+        alert("No data to export");
+        return;
+    }
+
+    let excelData = scannedData.map(v => [v]);
+    let ws = XLSX.utils.aoa_to_sheet([["Scanned QR Data"], ...excelData]);
+    let wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "QR Scans");
+
+    XLSX.writeFile(wb, "qr_scans.xlsx");
+
+    if (html5QrCode) html5QrCode.stop();
+
+    alert("Excel exported successfully!");
+}
+
+</script>
+
+</body>
+</html>
