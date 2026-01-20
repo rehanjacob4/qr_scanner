@@ -1,234 +1,272 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>QR Scanner → Excel</title>
+<title>Item QR Code Scanner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <script src="https://unpkg.com/html5-qrcode"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <style>
 body {
-    font-family: -apple-system, BlinkMacSystemFont, Arial;
-    background: linear-gradient(to bottom, #e3f2fd, #ffffff);
-    margin: 0;
-    padding: 10px;
-    text-align: center;
+  font-family: Arial, sans-serif;
+  margin: 0;
+  background: #f4f6f8;
 }
-
-h2 { color: #0d47a1; }
-
+header {
+  text-align: center;
+  font-size: 24px;
+  font-weight: bold;
+  padding: 15px;
+  background: #1f2937;
+  color: white;
+}
+.screen {
+  display: none;
+  padding: 15px;
+}
+.active {
+  display: block;
+}
 button {
-    width: 90%;
-    max-width: 320px;
-    padding: 16px;
-    margin: 12px auto;
-    font-size: 20px;
-    border-radius: 14px;
-    border: none;
-    color: white;
+  width: 100%;
+  padding: 18px;
+  margin: 10px 0;
+  font-size: 18px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
 }
+.primary { background: #2563eb; color: white; }
+.secondary { background: #10b981; color: white; }
+.danger { background: #dc2626; color: white; }
+.gray { background: #6b7280; color: white; }
 
-#cameraBtn { background: #4caf50; }
-#scannerBtn { background: #ff9800; }
-#cancelBtn { background: #f44336; }
-#saveBtn { background: #2196f3; }
-
-#reader {
-    width: 90%;
-    max-width: 350px;
-    margin: auto;
-    border: 3px solid #2196f3;
-    border-radius: 12px;
-    background: black;
+.list {
+  max-height: 250px;
+  overflow-y: auto;
+  background: white;
+  padding: 10px;
+  border-radius: 6px;
 }
-
-table {
-    width: 100%;
-    margin-top: 15px;
-    background: white;
-    border-collapse: collapse;
-    font-size: 16px;
+.item {
+  padding: 8px;
+  border-bottom: 1px solid #e5e7eb;
 }
-
-th, td {
-    border: 1px solid #bbb;
-    padding: 10px;
-}
-
-th { background: #bbdefb; }
-
-#scannerInput {
-    width: 90%;
-    padding: 15px;
-    font-size: 18px;
-    margin-top: 15px;
-    border-radius: 10px;
-    border: 2px solid #2196f3;
-}
-
-#duplicateBox {
-    display: none;
-    position: fixed;
-    top: 40%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: white;
-    border: 3px solid red;
-    padding: 20px;
-    border-radius: 10px;
-    z-index: 1000;
-    width: 80%;
+.small-btn {
+  padding: 10px;
+  font-size: 16px;
 }
 </style>
 </head>
 
 <body>
 
-<h2>📷 QR Scanner → Excel</h2>
+<header>Item QR Code Scanner</header>
 
-<!-- MODE SELECTION -->
-<div id="modeSelect">
-    <button id="cameraBtn" onclick="selectCamera()">📷 Use Camera (Mobile)</button>
-    <button id="scannerBtn" onclick="selectScanner()">⌨️ Use Scanner (PC)</button>
+<!-- MAIN MENU -->
+<div id="mainMenu" class="screen active">
+  <button class="primary" onclick="showScreen('newSession')">Start New Session</button>
+  <button class="secondary" onclick="showSavedSessions()">Open Saved Sessions</button>
+  <button class="gray" onclick="showScreen('settings')">Settings</button>
 </div>
 
-<!-- CAMERA MODE -->
-<div id="cameraMode" style="display:none;">
-    <div id="reader"></div>
+<!-- NEW SESSION -->
+<div id="newSession" class="screen">
+  <button class="primary" onclick="startSession('camera')">Use Camera (Mobile)</button>
+  <button class="secondary" onclick="startSession('scanner')">Use Barcode Scanner (PC)</button>
+  <button class="gray" onclick="backToMain()">Back</button>
 </div>
 
-<!-- SCANNER MODE -->
-<div id="scannerMode" style="display:none;">
-    <input id="scannerInput" placeholder="Scan QR here..." autofocus
-           onkeydown="if(event.key==='Enter') handleScannerInput()">
+<!-- SESSION SCREEN -->
+<div id="sessionScreen" class="screen">
+  <h3 id="sessionTitle"></h3>
+
+  <div id="reader" style="width:100%;"></div>
+
+  <button class="secondary small-btn" onclick="manualEntry()">Add Manual Entry</button>
+
+  <div class="list" id="scanList"></div>
+
+  <button class="primary" onclick="saveSession()">Save & Exit</button>
+  <button class="danger" onclick="cancelSession()">Cancel Session</button>
 </div>
 
-<table>
-<thead>
-<tr><th>Scanned QR Data</th></tr>
-</thead>
-<tbody id="tableBody"></tbody>
-</table>
+<!-- SAVED SESSIONS -->
+<div id="savedSessions" class="screen">
+  <div id="sessionsList"></div>
+  <button class="gray" onclick="backToMain()">Back</button>
+</div>
 
-<button id="cancelBtn" onclick="cancelSession()">❌ Cancel Session</button>
-<button id="saveBtn" onclick="exportToExcel()">💾 Save & Export Excel</button>
-
-<!-- Sounds -->
-<audio id="normalBeep">
-<source src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg">
-</audio>
-
-<audio id="warningBeep">
-<source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg">
-</audio>
-
-<!-- Duplicate Box -->
-<div id="duplicateBox">
-    <p><b>⚠ Duplicate QR Detected</b></p>
-    <p id="dupText"></p>
-    <button style="background:#4caf50" onclick="acceptDuplicate()">Accept</button>
-    <button style="background:#f44336" onclick="rejectDuplicate()">Reject</button>
+<!-- SETTINGS -->
+<div id="settings" class="screen">
+  <label>Separator Symbol:</label>
+  <input id="separator" style="width:100%;padding:12px;font-size:18px;">
+  <button class="primary" onclick="saveSettings()">Save</button>
+  <button class="gray" onclick="backToMain()">Back</button>
 </div>
 
 <script>
+let currentSession = null;
+let html5Qr;
+let separator = localStorage.getItem("separator") || "_";
 
-let scannedData = [];
-let pendingDuplicate = "";
-let html5QrCode;
+document.getElementById("separator").value = separator;
 
-// Select camera mode
-function selectCamera() {
-    document.getElementById("modeSelect").style.display = "none";
-    document.getElementById("cameraMode").style.display = "block";
-
-    html5QrCode = new Html5Qrcode("reader");
-
-    Html5Qrcode.getCameras().then(cameras => {
-        html5QrCode.start(cameras[0].id, { fps: 10, qrbox: 250 }, onScanSuccess);
-    });
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
 }
 
-// Select scanner mode
-function selectScanner() {
-    document.getElementById("modeSelect").style.display = "none";
-    document.getElementById("scannerMode").style.display = "block";
-    document.getElementById("scannerInput").focus();
+function backToMain() {
+  stopScanner();
+  showScreen('mainMenu');
 }
 
-// Scanner input handler
-function handleScannerInput() {
-    let value = document.getElementById("scannerInput").value.trim();
-    document.getElementById("scannerInput").value = "";
-    processScan(value);
+function startSession(mode) {
+  const name = prompt("Enter Session Name:");
+  if (!name) return;
+
+  currentSession = {
+    name,
+    created: new Date().toLocaleString(),
+    items: []
+  };
+
+  document.getElementById("sessionTitle").innerText =
+    `${name} (${currentSession.created})`;
+
+  showScreen('sessionScreen');
+  document.getElementById("scanList").innerHTML = "";
+
+  if (mode === "camera") startCamera();
 }
 
-// Camera scan handler
-function onScanSuccess(decodedText) {
-    processScan(decodedText);
+function startCamera() {
+  html5Qr = new Html5Qrcode("reader");
+  html5Qr.start(
+    { facingMode: { exact: "environment" } },
+    { fps: 15, qrbox: 250 },
+    onScanSuccess
+  ).catch(() => {
+    html5Qr.start(
+      { facingMode: "environment" },
+      { fps: 15, qrbox: 250 },
+      onScanSuccess
+    );
+  });
 }
 
-// Process common scan logic
-function processScan(value) {
-
-    if (scannedData.includes(value)) {
-        document.getElementById("warningBeep").play();
-        pendingDuplicate = value;
-        document.getElementById("dupText").innerText = value;
-        document.getElementById("duplicateBox").style.display = "block";
-        return;
-    }
-
-    addData(value);
+function onScanSuccess(text) {
+  if (currentSession.items.includes(text)) {
+    if (!confirm("Duplicate entry detected.\nPress OK to Continue, Cancel to Skip")) return;
+    warningBeep();
+  } else {
+    beep();
+  }
+  currentSession.items.push(text);
+  renderList();
 }
 
-// Add data
-function addData(value) {
-    scannedData.push(value);
-    document.getElementById("normalBeep").play();
-
-    let row = document.getElementById("tableBody").insertRow();
-    let cell = row.insertCell(0);
-    cell.innerText = value;
+function renderList() {
+  const list = document.getElementById("scanList");
+  list.innerHTML = "";
+  currentSession.items.forEach((v, i) => {
+    const div = document.createElement("div");
+    div.className = "item";
+    div.innerText = `${i + 1}. ${v}`;
+    list.appendChild(div);
+  });
 }
 
-// Duplicate controls
-function acceptDuplicate() { addData(pendingDuplicate); closeDuplicate(); }
-function rejectDuplicate() { closeDuplicate(); }
-function closeDuplicate() {
-    pendingDuplicate = "";
-    document.getElementById("duplicateBox").style.display = "none";
+function manualEntry() {
+  const v = prompt("Enter QR Code value manually:");
+  if (v) {
+    currentSession.items.push(v);
+    renderList();
+  }
 }
 
-// Cancel
+function saveSession() {
+  const sessions = JSON.parse(localStorage.getItem("sessions") || "[]");
+  sessions.push(currentSession);
+  localStorage.setItem("sessions", JSON.stringify(sessions));
+  backToMain();
+}
+
 function cancelSession() {
-    if (confirm("Clear all scanned data?")) {
-        scannedData = [];
-        document.getElementById("tableBody").innerHTML = "";
-    }
+  if (confirm("All data will be lost. Continue?")) {
+    backToMain();
+  }
 }
 
-// Export
-function exportToExcel() {
+function showSavedSessions() {
+  showScreen("savedSessions");
+  const list = document.getElementById("sessionsList");
+  list.innerHTML = "";
 
-    if (scannedData.length === 0) {
-        alert("No data to export");
-        return;
-    }
+  const sessions = JSON.parse(localStorage.getItem("sessions") || "[]");
 
-    let excelData = scannedData.map(v => [v]);
-    let ws = XLSX.utils.aoa_to_sheet([["Scanned QR Data"], ...excelData]);
-    let wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "QR Scans");
-
-    XLSX.writeFile(wb, "qr_scans.xlsx");
-
-    if (html5QrCode) html5QrCode.stop();
-
-    alert("Excel exported successfully!");
+  sessions.forEach((s, i) => {
+    const div = document.createElement("div");
+    div.className = "item";
+    div.innerHTML = `
+      <b>${s.name}</b> (${s.items.length} items)<br>
+      <button onclick="openSession(${i})">Open</button>
+      <button onclick="exportSession(${i})">Export</button>
+      <button onclick="deleteSession(${i})">Delete</button>
+    `;
+    list.appendChild(div);
+  });
 }
 
+function openSession(i) {
+  const sessions = JSON.parse(localStorage.getItem("sessions"));
+  currentSession = sessions[i];
+  showScreen("sessionScreen");
+  renderList();
+}
+
+function deleteSession(i) {
+  const sessions = JSON.parse(localStorage.getItem("sessions"));
+  sessions.splice(i, 1);
+  localStorage.setItem("sessions", JSON.stringify(sessions));
+  showSavedSessions();
+}
+
+function exportSession(i) {
+  const s = JSON.parse(localStorage.getItem("sessions"))[i];
+  const data = s.items.map(v =>
+    v.includes(separator) ? v.split(separator) : [v]
+  );
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, s.name);
+  XLSX.writeFile(wb, `${s.name}.xlsx`);
+}
+
+function saveSettings() {
+  separator = document.getElementById("separator").value;
+  localStorage.setItem("separator", separator);
+  alert("Settings saved");
+}
+
+function stopScanner() {
+  if (html5Qr) {
+    html5Qr.stop().catch(()=>{});
+  }
+}
+
+function beep() {
+  new Audio("https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg").play();
+}
+
+function warningBeep() {
+  new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg").play();
+}
 </script>
 
 </body>
 </html>
+
