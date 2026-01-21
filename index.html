@@ -131,6 +131,7 @@ let lastQrValue = null;
 let activeQrValue = null; // QR currently being processed / locked
 let lastScannedValue = null;
 let lastAcceptedScanTime = 0;
+let lastProcessedQr = null;
 
 const SAME_QR_COOLDOWN = 2000; // 2 seconds
   
@@ -221,34 +222,25 @@ function startSession(mode) {
 
 /* -------------------- CAMERA -------------------- */
 function startCamera() {
-  html5Qr = new Html5Qrcode("reader");
+  if (html5Qr) return; // prevent double start
 
+  html5Qr = new Html5Qrcode("reader");
   html5Qr.start(
     { facingMode: { exact: "environment" } },
     { fps: 15, qrbox: 250 },
     onScanSuccess,
     onScanFailure
-  ).catch(() => {
-    html5Qr.start(
-      { facingMode: "environment" },
-      { fps: 15, qrbox: 250 },
-      onScanSuccess,
-      onScanFailure
-    );
-  });
+  );
 }
 
 function onScanFailure() {
-  // QR is no longer detected → unlock scanner
-  if (scanLocked) {
-    scanLocked = false;
-    lastQrValue = null;
+  // QR no longer detected → allow next scan
+  if (lastProcessedQr !== null) {
+    lastProcessedQr = null;
     logInfo("QR removed – ready for next scan");
-    startCamera();
   }
 }
-
-  
+ 
 async function stopScanner() {
   if (!html5Qr) return;
   try {
@@ -267,43 +259,29 @@ function showRemoveQrMessage() {
 
   
 /* -------------------- SCAN HANDLING -------------------- */
-async function onScanSuccess(text) {
-  // 🔒 Hard lock: ignore everything until QR is removed
-  if (scanLocked) return;
-
-  scanLocked = true;
-  lastQrValue = text;
-
-  // ---------- DUPLICATE ----------
-  if (currentSession.items.includes(text)) {
-    warningBeep();
-
-    await stopScanner(); // iOS-safe
-
-    const choice = confirm(
-      "Duplicate item detected.\n\nOK = Continue & Save\nCancel = Skip"
-    );
-
-    if (!choice) {
-      logInfo("Duplicate skipped");
-      showRemoveQrMessage();
-      return;
-    }
-
-    logInfo("Duplicate accepted");
-  } else {
-    beep();
-    logInfo("New item scanned");
+function onScanSuccess(text) {
+  // Ignore same QR until a DIFFERENT QR is detected
+  if (text === lastProcessedQr) {
+    logInfo("Same QR still in frame – ignored");
+    return;
   }
 
-  // Save item
+  // Mark this QR as processed
+  lastProcessedQr = text;
+
+  // Check duplicate in session
+  if (currentSession.items.includes(text)) {
+    warningBeep();
+    logInfo("Duplicate detected – skipped");
+    return;
+  }
+
+  // New scan
+  beep();
   currentSession.items.push(text);
   renderList();
-
-  showRemoveQrMessage();
+  logOk("Item scanned");
 }
-
-
 
 function renderList() {
   const list = document.getElementById("scanList");
