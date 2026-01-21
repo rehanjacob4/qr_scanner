@@ -128,6 +128,9 @@ button {
 
 let lastScannedValue = null;
 let duplicateLockActive = false;
+let lastDetectionTime = 0;
+
+const QR_EXIT_TIMEOUT = 1500; // ms – QR considered gone
 
   
 /* -------------------- LOGGING -------------------- */
@@ -248,25 +251,30 @@ async function stopScanner() {
 /* -------------------- SCAN HANDLING -------------------- */
 async function onScanSuccess(text) {
   const now = Date.now();
+  lastDetectionTime = now;
+
+  // Time-based debounce
   if (now - lastScanTime < SCAN_DELAY) return;
   lastScanTime = now;
+
+  // If QR disappeared earlier, reset lock
+  resetDuplicateLockIfNeeded();
 
   // Prevent repeat firing for same visible QR
   if (text === lastScannedValue && duplicateLockActive) return;
 
-  // New QR unlocks lock
+  // New QR detected → unlock
   if (text !== lastScannedValue) {
     duplicateLockActive = false;
   }
 
-  // -------- DUPLICATE CASE --------
+  // ---------- DUPLICATE CASE ----------
   if (currentSession.items.includes(text)) {
     warningBeep();
 
     duplicateLockActive = true;
     lastScannedValue = text;
 
-    //  STOP CAMERA BEFORE confirm()
     await stopScanner();
 
     const choice = confirm(
@@ -275,7 +283,7 @@ async function onScanSuccess(text) {
 
     if (!choice) {
       logInfo("Duplicate skipped");
-      startCamera(); //  restart camera
+      startCamera();
       return;
     }
 
@@ -289,11 +297,10 @@ async function onScanSuccess(text) {
   currentSession.items.push(text);
   renderList();
 
-  // Lock until QR changes
+  // Lock until QR leaves frame
   lastScannedValue = text;
   duplicateLockActive = true;
 
-  //  RESTART CAMERA AFTER USER DECISION
   startCamera();
 }
 
@@ -375,12 +382,28 @@ function exportSession(i) {
   XLSX.writeFile(wb, `${s.name}.xlsx`);
 }
 
+function resetDuplicateLockIfNeeded() {
+  const now = Date.now();
+  if (
+    duplicateLockActive &&
+    now - lastDetectionTime > QR_EXIT_TIMEOUT
+  ) {
+    logInfo("QR left frame – duplicate lock reset");
+    duplicateLockActive = false;
+    lastScannedValue = null;
+  }
+}
+ 
+  
 /* -------------------- SETTINGS -------------------- */
 function saveSettings() {
   separator = document.getElementById("separator").value;
   localStorage.setItem("separator", separator);
   alert("Settings saved");
 }
+
+setInterval(resetDuplicateLockIfNeeded, 500);
+
 </script>
 
 </body>
