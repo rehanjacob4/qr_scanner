@@ -126,6 +126,8 @@ button {
   
 <script>
 
+let activeQrValue = null; // QR currently being processed / locked
+ 
 let lastScannedValue = null;
 let lastAcceptedScanTime = 0;
 
@@ -218,22 +220,29 @@ function startSession(mode) {
 
 /* -------------------- CAMERA -------------------- */
 function startCamera() {
-  logInfo("Starting camera");
   html5Qr = new Html5Qrcode("reader");
 
   html5Qr.start(
     { facingMode: { exact: "environment" } },
     { fps: 15, qrbox: 250 },
-    onScanSuccess
+    onScanSuccess,
+    onScanFailure
   ).catch(() => {
     html5Qr.start(
       { facingMode: "environment" },
       { fps: 15, qrbox: 250 },
-      onScanSuccess
+      onScanSuccess,
+      onScanFailure
     );
   });
 }
 
+
+function onScanFailure() {
+  // When decoder does not see a QR, unlock
+  activeQrValue = null;
+}  
+  
 async function stopScanner() {
   if (!html5Qr) return;
   try {
@@ -248,25 +257,19 @@ async function stopScanner() {
 
 /* -------------------- SCAN HANDLING -------------------- */
 async function onScanSuccess(text) {
-  const now = Date.now();
-
-  // Basic frame debounce
-  if (now - lastScanTime < SCAN_DELAY) return;
-  lastScanTime = now;
-
-  // 🔒 Block same QR within cooldown window
-  if (
-    text === lastScannedValue &&
-    now - lastAcceptedScanTime < SAME_QR_COOLDOWN
-  ) {
+  // 🔒 Ignore same QR until a different one appears
+  if (text === activeQrValue) {
     return;
   }
+
+  // Lock this QR immediately
+  activeQrValue = text;
 
   // ---------- DUPLICATE IN SESSION ----------
   if (currentSession.items.includes(text)) {
     warningBeep();
 
-    // Stop scanner BEFORE confirm (iOS safe)
+    // Stop camera BEFORE confirm (iOS safe)
     await stopScanner();
 
     const choice = confirm(
@@ -274,23 +277,25 @@ async function onScanSuccess(text) {
     );
 
     if (!choice) {
+      logInfo("Duplicate skipped");
       startCamera();
       return;
     }
+
+    logInfo("Duplicate accepted");
   } else {
     beep();
+    logInfo("New item scanned");
   }
 
-  // ✅ ACCEPT SCAN
+  // Save scan
   currentSession.items.push(text);
   renderList();
 
-  lastScannedValue = text;
-  lastAcceptedScanTime = now;
-
-  // Restart camera cleanly
+  // Restart camera
   startCamera();
 }
+
 
 function renderList() {
   const list = document.getElementById("scanList");
