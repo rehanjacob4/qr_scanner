@@ -97,6 +97,7 @@ button {
 
 <!-- SESSION SCREEN -->
 <div id="sessionScreen" class="screen">
+  
   <h3 id="sessionTitle"></h3>
 
   <div id="reader" style="width:100%;"></div>
@@ -107,6 +108,21 @@ button {
 
   <button class="primary" onclick="saveSession()">Save & Exit</button>
   <button class="danger" onclick="cancelSession()">Cancel Session</button>
+</div>
+
+<div id="duplicateBox" style="
+  display:none;
+  background:#fff3cd;
+  border:1px solid #facc15;
+  padding:12px;
+  border-radius:6px;
+  margin:10px 0;
+">
+  <b>Duplicate detected</b>
+  <div style="margin-top:8px;">
+    <button class="primary small-btn" onclick="acceptDuplicate()">Record Duplicate</button>
+    <button class="gray small-btn" onclick="skipDuplicate()">Ignore & Continue</button>
+  </div>
 </div>
 
 <!-- SAVED SESSIONS -->
@@ -132,6 +148,7 @@ let activeQrValue = null; // QR currently being processed / locked
 let lastScannedValue = null;
 let lastAcceptedScanTime = 0;
 let lastProcessedQr = null;
+let pendingDuplicate = null;
 
 const SAME_QR_COOLDOWN = 2000; // 2 seconds
   
@@ -234,12 +251,12 @@ function startCamera() {
 }
 
 function onScanFailure() {
-  // QR no longer detected → allow next scan
-  if (lastProcessedQr !== null) {
+  if (lastProcessedQr !== null && pendingDuplicate === null) {
     lastProcessedQr = null;
     logInfo("QR removed – ready for next scan");
   }
 }
+
  
 async function stopScanner() {
   if (!html5Qr) return;
@@ -260,19 +277,18 @@ function showRemoveQrMessage() {
   
 /* -------------------- SCAN HANDLING -------------------- */
 function onScanSuccess(text) {
-  // Ignore same QR until a DIFFERENT QR is detected
-  if (text === lastProcessedQr) {
-    logInfo("Same QR still in frame – ignored");
-    return;
-  }
+  // Ignore same QR still in frame
+  if (text === lastProcessedQr) return;
 
-  // Mark this QR as processed
   lastProcessedQr = text;
 
-  // Check duplicate in session
+  // Duplicate detected
   if (currentSession.items.includes(text)) {
     warningBeep();
-    logInfo("Duplicate detected – skipped");
+    pendingDuplicate = text;
+
+    document.getElementById("duplicateBox").style.display = "block";
+    logInfo("Duplicate detected – waiting for user action");
     return;
   }
 
@@ -283,6 +299,27 @@ function onScanSuccess(text) {
   logOk("Item scanned");
 }
 
+function acceptDuplicate() {
+  if (!pendingDuplicate) return;
+
+  currentSession.items.push(pendingDuplicate);
+  renderList();
+  beep();
+  logOk("Duplicate recorded");
+
+  clearDuplicateState();
+}
+
+function skipDuplicate() {
+  logInfo("Duplicate skipped");
+  clearDuplicateState();
+}
+
+function clearDuplicateState() {
+  pendingDuplicate = null;
+  document.getElementById("duplicateBox").style.display = "none";
+} 
+  
 function renderList() {
   const list = document.getElementById("scanList");
   list.innerHTML = "";
