@@ -108,11 +108,9 @@ button {
 </div>
 
 <script>
-let successSound = new Audio("https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg");
-let warningSound = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
-
-successSound.preload = "auto";
-warningSound.preload = "auto";
+let successSound = null;
+let warningSound = null;
+let audioInitialized = false;
 
 let lastScanTime = 0;
 const SCAN_DELAY = 1000; // 1 second
@@ -129,7 +127,18 @@ let separator = localStorage.getItem("separator") || "_";
 
 document.getElementById("separator").value = separator;
 
+function initAudio() {
+  if (audioInitialized) return;
+
+  successSound = new Audio("https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg");
+  warningSound = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+
+  audioInitialized = true;
+}
+
+  
 function showScreen(id) {
+  initAudio();
   stopScanner();
 
   document.querySelectorAll('.screen').forEach(s =>
@@ -137,6 +146,7 @@ function showScreen(id) {
   );
   document.getElementById(id).classList.add('active');
 }
+
 
 
 function backToMain() {
@@ -307,11 +317,13 @@ async function stopScanner() {
 
 
 function beep() {
+  if (!successSound) return;
   successSound.currentTime = 0;
   successSound.play().catch(() => {});
 }
 
 function warningBeep() {
+  if (!warningSound) return;
   warningSound.currentTime = 0;
   warningSound.play().catch(() => {});
 }
