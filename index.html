@@ -111,6 +111,12 @@ button {
 let lastScanTime = 0;
 const SCAN_DELAY = 1000; // 1 second
 
+let successSound = new Audio("https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg");
+let warningSound = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+
+successSound.preload = "auto";
+warningSound.preload = "auto";
+
 let currentSession = null;
 let html5Qr;
 let separator = localStorage.getItem("separator") || "_";
@@ -196,13 +202,24 @@ function renderList() {
   });
 }
 
-function manualEntry() {
+async function manualEntry() {
+  if (html5Qr) {
+    await html5Qr.pause(true); // pause scanning safely
+  }
+
   const v = prompt("Enter QR Code value manually:");
+
   if (v) {
     currentSession.items.push(v);
     renderList();
+    beep();
+  }
+
+  if (html5Qr) {
+    await html5Qr.resume(); // resume scanning
   }
 }
+
 
 function saveSession() {
   const sessions = JSON.parse(localStorage.getItem("sessions") || "[]");
@@ -275,12 +292,15 @@ function stopScanner() {
 }
 
 function beep() {
-  new Audio("https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg").play();
+  successSound.currentTime = 0;
+  successSound.play().catch(() => {});
 }
 
 function warningBeep() {
-  new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg").play();
+  warningSound.currentTime = 0;
+  warningSound.play().catch(() => {});
 }
+
 </script>
 
 </body>
