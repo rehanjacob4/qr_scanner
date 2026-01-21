@@ -115,12 +115,6 @@ let audioInitialized = false;
 let lastScanTime = 0;
 const SCAN_DELAY = 1000; // 1 second
 
-let successSound = new Audio("https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg");
-let warningSound = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
-
-successSound.preload = "auto";
-warningSound.preload = "auto";
-
 let currentSession = null;
 let html5Qr;
 let separator = localStorage.getItem("separator") || "_";
@@ -135,7 +129,6 @@ function initAudio() {
 
   audioInitialized = true;
 }
-
   
 function showScreen(id) {
   initAudio();
