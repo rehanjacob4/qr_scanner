@@ -130,12 +130,16 @@ let separator = localStorage.getItem("separator") || "_";
 document.getElementById("separator").value = separator;
 
 function showScreen(id) {
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  stopScanner();
+
+  document.querySelectorAll('.screen').forEach(s =>
+    s.classList.remove('active')
+  );
   document.getElementById(id).classList.add('active');
 }
 
+
 function backToMain() {
-  stopScanner();
   showScreen('mainMenu');
 }
 
@@ -291,11 +295,16 @@ function saveSettings() {
   alert("Settings saved");
 }
 
-function stopScanner() {
+async function stopScanner() {
   if (html5Qr) {
-    html5Qr.stop().catch(()=>{});
+    try {
+      await html5Qr.stop();
+      await html5Qr.clear();
+    } catch (e) {}
+    html5Qr = null;
   }
 }
+
 
 function beep() {
   successSound.currentTime = 0;
