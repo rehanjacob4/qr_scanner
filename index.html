@@ -246,29 +246,28 @@ async function stopScanner() {
 }
 
 /* -------------------- SCAN HANDLING -------------------- */
-function onScanSuccess(text) {
+async function onScanSuccess(text) {
   const now = Date.now();
-
-  // Basic debounce
   if (now - lastScanTime < SCAN_DELAY) return;
   lastScanTime = now;
 
-  // 🔒 Lock same QR until a new one appears
-  if (text === lastScannedValue && duplicateLockActive) {
-    return;
-  }
+  // Prevent repeat firing for same visible QR
+  if (text === lastScannedValue && duplicateLockActive) return;
 
-  // New QR detected → unlock
+  // New QR unlocks lock
   if (text !== lastScannedValue) {
     duplicateLockActive = false;
   }
 
-  // Duplicate check in session
+  // -------- DUPLICATE CASE --------
   if (currentSession.items.includes(text)) {
     warningBeep();
 
     duplicateLockActive = true;
     lastScannedValue = text;
+
+    //  STOP CAMERA BEFORE confirm()
+    await stopScanner();
 
     const choice = confirm(
       "Duplicate item detected.\n\nOK = Continue & Save\nCancel = Skip"
@@ -276,6 +275,7 @@ function onScanSuccess(text) {
 
     if (!choice) {
       logInfo("Duplicate skipped");
+      startCamera(); //  restart camera
       return;
     }
 
@@ -285,14 +285,18 @@ function onScanSuccess(text) {
     logInfo("New item scanned");
   }
 
-  // Save scan
+  // Save item
   currentSession.items.push(text);
   renderList();
 
-  // Lock current value until QR changes
+  // Lock until QR changes
   lastScannedValue = text;
   duplicateLockActive = true;
+
+  //  RESTART CAMERA AFTER USER DECISION
+  startCamera();
 }
+
 
 
 function renderList() {
