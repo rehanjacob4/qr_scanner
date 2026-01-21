@@ -126,8 +126,9 @@ button {
   
 <script>
 
+let scanLocked = false;
+let lastQrValue = null;
 let activeQrValue = null; // QR currently being processed / locked
- 
 let lastScannedValue = null;
 let lastAcceptedScanTime = 0;
 
@@ -237,11 +238,16 @@ function startCamera() {
   });
 }
 
-
 function onScanFailure() {
-  // When decoder does not see a QR, unlock
-  activeQrValue = null;
-}  
+  // QR is no longer detected → unlock scanner
+  if (scanLocked) {
+    scanLocked = false;
+    lastQrValue = null;
+    logInfo("QR removed – ready for next scan");
+    startCamera();
+  }
+}
+
   
 async function stopScanner() {
   if (!html5Qr) return;
@@ -255,22 +261,24 @@ async function stopScanner() {
   html5Qr = null;
 }
 
+function showRemoveQrMessage() {
+  logInfo("Please remove QR code from camera to continue scanning");
+}
+
+  
 /* -------------------- SCAN HANDLING -------------------- */
 async function onScanSuccess(text) {
-  // 🔒 Ignore same QR until a different one appears
-  if (text === activeQrValue) {
-    return;
-  }
+  // 🔒 Hard lock: ignore everything until QR is removed
+  if (scanLocked) return;
 
-  // Lock this QR immediately
-  activeQrValue = text;
+  scanLocked = true;
+  lastQrValue = text;
 
-  // ---------- DUPLICATE IN SESSION ----------
+  // ---------- DUPLICATE ----------
   if (currentSession.items.includes(text)) {
     warningBeep();
 
-    // Stop camera BEFORE confirm (iOS safe)
-    await stopScanner();
+    await stopScanner(); // iOS-safe
 
     const choice = confirm(
       "Duplicate item detected.\n\nOK = Continue & Save\nCancel = Skip"
@@ -278,7 +286,7 @@ async function onScanSuccess(text) {
 
     if (!choice) {
       logInfo("Duplicate skipped");
-      startCamera();
+      showRemoveQrMessage();
       return;
     }
 
@@ -288,13 +296,13 @@ async function onScanSuccess(text) {
     logInfo("New item scanned");
   }
 
-  // Save scan
+  // Save item
   currentSession.items.push(text);
   renderList();
 
-  // Restart camera
-  startCamera();
+  showRemoveQrMessage();
 }
+
 
 
 function renderList() {
