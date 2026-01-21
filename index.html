@@ -127,11 +127,9 @@ button {
 <script>
 
 let lastScannedValue = null;
-let duplicateLockActive = false;
-let lastDetectionTime = 0;
+let lastAcceptedScanTime = 0;
 
-const QR_EXIT_TIMEOUT = 1500; // ms – QR considered gone
-
+const SAME_QR_COOLDOWN = 2000; // 2 seconds
   
 /* -------------------- LOGGING -------------------- */
 function log(msg, color="#e5e7eb") {
@@ -251,30 +249,24 @@ async function stopScanner() {
 /* -------------------- SCAN HANDLING -------------------- */
 async function onScanSuccess(text) {
   const now = Date.now();
-  lastDetectionTime = now;
 
-  // Time-based debounce
+  // Basic frame debounce
   if (now - lastScanTime < SCAN_DELAY) return;
   lastScanTime = now;
 
-  // If QR disappeared earlier, reset lock
-  resetDuplicateLockIfNeeded();
-
-  // Prevent repeat firing for same visible QR
-  if (text === lastScannedValue && duplicateLockActive) return;
-
-  // New QR detected → unlock
-  if (text !== lastScannedValue) {
-    duplicateLockActive = false;
+  // 🔒 Block same QR within cooldown window
+  if (
+    text === lastScannedValue &&
+    now - lastAcceptedScanTime < SAME_QR_COOLDOWN
+  ) {
+    return;
   }
 
-  // ---------- DUPLICATE CASE ----------
+  // ---------- DUPLICATE IN SESSION ----------
   if (currentSession.items.includes(text)) {
     warningBeep();
 
-    duplicateLockActive = true;
-    lastScannedValue = text;
-
+    // Stop scanner BEFORE confirm (iOS safe)
     await stopScanner();
 
     const choice = confirm(
@@ -282,29 +274,23 @@ async function onScanSuccess(text) {
     );
 
     if (!choice) {
-      logInfo("Duplicate skipped");
       startCamera();
       return;
     }
-
-    logInfo("Duplicate accepted");
   } else {
     beep();
-    logInfo("New item scanned");
   }
 
-  // Save item
+  // ✅ ACCEPT SCAN
   currentSession.items.push(text);
   renderList();
 
-  // Lock until QR leaves frame
   lastScannedValue = text;
-  duplicateLockActive = true;
+  lastAcceptedScanTime = now;
 
+  // Restart camera cleanly
   startCamera();
 }
-
-
 
 function renderList() {
   const list = document.getElementById("scanList");
@@ -381,19 +367,6 @@ function exportSession(i) {
   XLSX.utils.book_append_sheet(wb, ws, s.name);
   XLSX.writeFile(wb, `${s.name}.xlsx`);
 }
-
-function resetDuplicateLockIfNeeded() {
-  const now = Date.now();
-  if (
-    duplicateLockActive &&
-    now - lastDetectionTime > QR_EXIT_TIMEOUT
-  ) {
-    logInfo("QR left frame – duplicate lock reset");
-    duplicateLockActive = false;
-    lastScannedValue = null;
-  }
-}
- 
   
 /* -------------------- SETTINGS -------------------- */
 function saveSettings() {
@@ -401,8 +374,6 @@ function saveSettings() {
   localStorage.setItem("separator", separator);
   alert("Settings saved");
 }
-
-setInterval(resetDuplicateLockIfNeeded, 500);
 
 </script>
 
