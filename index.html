@@ -108,6 +108,9 @@ button {
 </div>
 
 <script>
+let lastScanTime = 0;
+const SCAN_DELAY = 1000; // 1 second
+
 let currentSession = null;
 let html5Qr;
 let separator = localStorage.getItem("separator") || "_";
@@ -159,12 +162,25 @@ function startCamera() {
 }
 
 function onScanSuccess(text) {
+  const now = Date.now();
+
+  // Enforce scan delay
+  if (now - lastScanTime < SCAN_DELAY) {
+    return;
+  }
+  lastScanTime = now;
+
+  // Duplicate check
   if (currentSession.items.includes(text)) {
-    if (!confirm("Duplicate entry detected.\nPress OK to Continue, Cancel to Skip")) return;
     warningBeep();
+    const choice = confirm(
+      "Duplicate entry detected.\n\nOK = Continue & Save\nCancel = Skip"
+    );
+    if (!choice) return;
   } else {
     beep();
   }
+
   currentSession.items.push(text);
   renderList();
 }
