@@ -58,6 +58,17 @@ button {
   padding: 10px;
   font-size: 16px;
 }
+
+#logBox {
+  margin-top: 15px;
+  background: #111827;
+  color: #e5e7eb;
+  padding: 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  max-height: 160px;
+  overflow-y: auto;
+}
 </style>
 </head>
 
@@ -70,6 +81,11 @@ button {
   <button class="primary" onclick="showScreen('newSession')">Start New Session</button>
   <button class="secondary" onclick="showSavedSessions()">Open Saved Sessions</button>
   <button class="gray" onclick="showScreen('settings')">Settings</button>
+
+  <div id="logBox">
+    <b>System Log</b>
+    <div id="logMessages"></div>
+  </div>
 </div>
 
 <!-- NEW SESSION -->
@@ -108,44 +124,71 @@ button {
 </div>
 
 <script>
-let successSound = null;
-let warningSound = null;
-let audioInitialized = false;
+/* -------------------- LOGGING -------------------- */
+function log(msg, color="#e5e7eb") {
+  const box = document.getElementById("logMessages");
+  if (!box) return;
+  const div = document.createElement("div");
+  div.style.color = color;
+  div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  box.prepend(div);
+}
+const logInfo = m => log("ℹ️ " + m, "#60a5fa");
+const logOk   = m => log("✅ " + m, "#10b981");
+const logErr  = m => log("❌ " + m, "#ef4444");
 
-let lastScanTime = 0;
-const SCAN_DELAY = 1000; // 1 second
+/* -------------------- GLOBAL ERROR TRACKING -------------------- */
+window.addEventListener("error", e => logErr("JS Error: " + e.message));
+window.addEventListener("unhandledrejection", e => logErr("Promise Rejection"));
 
+/* -------------------- STATE -------------------- */
+let html5Qr = null;
 let currentSession = null;
-let html5Qr;
 let separator = localStorage.getItem("separator") || "_";
-
 document.getElementById("separator").value = separator;
 
-function initAudio() {
-  if (audioInitialized) return;
+let successSound = null;
+let warningSound = null;
+let audioReady = false;
 
+let lastScanTime = 0;
+const SCAN_DELAY = 800;
+
+/* -------------------- AUDIO -------------------- */
+function initAudio() {
+  if (audioReady) return;
   successSound = new Audio("https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg");
   warningSound = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
-
-  audioInitialized = true;
+  audioReady = true;
+  logOk("Audio initialized");
 }
-  
-function showScreen(id) {
+function beep() {
+  if (!successSound) return;
+  successSound.currentTime = 0;
+  successSound.play().catch(()=>{});
+}
+function warningBeep() {
+  if (!warningSound) return;
+  warningSound.currentTime = 0;
+  warningSound.play().catch(()=>{});
+}
+
+/* -------------------- NAVIGATION -------------------- */
+async function showScreen(id) {
+  logInfo("Switching to: " + id);
   initAudio();
-  stopScanner();
+  await stopScanner();
 
-  document.querySelectorAll('.screen').forEach(s =>
-    s.classList.remove('active')
-  );
-  document.getElementById(id).classList.add('active');
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+
+  logOk("Screen loaded: " + id);
 }
-
-
-
 function backToMain() {
-  showScreen('mainMenu');
+  showScreen("mainMenu");
 }
 
+/* -------------------- SESSION -------------------- */
 function startSession(mode) {
   const name = prompt("Enter Session Name:");
   if (!name) return;
@@ -156,17 +199,20 @@ function startSession(mode) {
     items: []
   };
 
-  document.getElementById("sessionTitle").innerText =
+  document.getElementById("sessionTitle").textContent =
     `${name} (${currentSession.created})`;
 
-  showScreen('sessionScreen');
+  showScreen("sessionScreen");
   document.getElementById("scanList").innerHTML = "";
 
   if (mode === "camera") startCamera();
 }
 
+/* -------------------- CAMERA -------------------- */
 function startCamera() {
+  logInfo("Starting camera");
   html5Qr = new Html5Qrcode("reader");
+
   html5Qr.start(
     { facingMode: { exact: "environment" } },
     { fps: 15, qrbox: 250 },
@@ -180,22 +226,27 @@ function startCamera() {
   });
 }
 
+async function stopScanner() {
+  if (!html5Qr) return;
+  try {
+    await html5Qr.stop();
+    await html5Qr.clear();
+    logOk("Scanner stopped");
+  } catch {
+    logErr("Scanner stop failed");
+  }
+  html5Qr = null;
+}
+
+/* -------------------- SCAN HANDLING -------------------- */
 function onScanSuccess(text) {
   const now = Date.now();
-
-  // Enforce scan delay
-  if (now - lastScanTime < SCAN_DELAY) {
-    return;
-  }
+  if (now - lastScanTime < SCAN_DELAY) return;
   lastScanTime = now;
 
-  // Duplicate check
   if (currentSession.items.includes(text)) {
     warningBeep();
-    const choice = confirm(
-      "Duplicate entry detected.\n\nOK = Continue & Save\nCancel = Skip"
-    );
-    if (!choice) return;
+    if (!confirm("Duplicate detected.\nOK = Save | Cancel = Skip")) return;
   } else {
     beep();
   }
@@ -207,120 +258,85 @@ function onScanSuccess(text) {
 function renderList() {
   const list = document.getElementById("scanList");
   list.innerHTML = "";
-  currentSession.items.forEach((v, i) => {
-    const div = document.createElement("div");
-    div.className = "item";
-    div.innerText = `${i + 1}. ${v}`;
-    list.appendChild(div);
+  currentSession.items.forEach((v,i) => {
+    const d = document.createElement("div");
+    d.className = "item";
+    d.textContent = `${i+1}. ${v}`;
+    list.appendChild(d);
   });
 }
 
 async function manualEntry() {
-  if (html5Qr) {
-    await html5Qr.pause(true); // pause scanning safely
-  }
-
-  const v = prompt("Enter QR Code value manually:");
-
+  if (html5Qr) await html5Qr.pause(true);
+  const v = prompt("Enter QR value:");
   if (v) {
     currentSession.items.push(v);
     renderList();
     beep();
   }
-
-  if (html5Qr) {
-    await html5Qr.resume(); // resume scanning
-  }
+  if (html5Qr) await html5Qr.resume();
 }
 
-
+/* -------------------- STORAGE -------------------- */
 function saveSession() {
   const sessions = JSON.parse(localStorage.getItem("sessions") || "[]");
   sessions.push(currentSession);
   localStorage.setItem("sessions", JSON.stringify(sessions));
+  logOk("Session saved");
   backToMain();
 }
 
 function cancelSession() {
-  if (confirm("All data will be lost. Continue?")) {
-    backToMain();
-  }
+  if (confirm("All data will be lost. Continue?")) backToMain();
 }
 
 function showSavedSessions() {
   showScreen("savedSessions");
-  const list = document.getElementById("sessionsList");
-  list.innerHTML = "";
+  const box = document.getElementById("sessionsList");
+  box.innerHTML = "";
 
   const sessions = JSON.parse(localStorage.getItem("sessions") || "[]");
-
-  sessions.forEach((s, i) => {
-    const div = document.createElement("div");
-    div.className = "item";
-    div.innerHTML = `
-      <b>${s.name}</b> (${s.items.length} items)<br>
+  sessions.forEach((s,i) => {
+    const d = document.createElement("div");
+    d.className = "item";
+    d.innerHTML = `
+      <b>${s.name}</b> (${s.items.length})
+      <br>
       <button onclick="openSession(${i})">Open</button>
       <button onclick="exportSession(${i})">Export</button>
-      <button onclick="deleteSession(${i})">Delete</button>
-    `;
-    list.appendChild(div);
+      <button onclick="deleteSession(${i})">Delete</button>`;
+    box.appendChild(d);
   });
 }
 
 function openSession(i) {
-  const sessions = JSON.parse(localStorage.getItem("sessions"));
-  currentSession = sessions[i];
+  currentSession = JSON.parse(localStorage.getItem("sessions"))[i];
   showScreen("sessionScreen");
   renderList();
 }
 
 function deleteSession(i) {
   const sessions = JSON.parse(localStorage.getItem("sessions"));
-  sessions.splice(i, 1);
+  sessions.splice(i,1);
   localStorage.setItem("sessions", JSON.stringify(sessions));
   showSavedSessions();
 }
 
 function exportSession(i) {
   const s = JSON.parse(localStorage.getItem("sessions"))[i];
-  const data = s.items.map(v =>
-    v.includes(separator) ? v.split(separator) : [v]
-  );
+  const data = s.items.map(v => v.includes(separator) ? v.split(separator) : [v]);
   const ws = XLSX.utils.aoa_to_sheet(data);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, s.name);
   XLSX.writeFile(wb, `${s.name}.xlsx`);
 }
 
+/* -------------------- SETTINGS -------------------- */
 function saveSettings() {
   separator = document.getElementById("separator").value;
   localStorage.setItem("separator", separator);
   alert("Settings saved");
 }
-
-async function stopScanner() {
-  if (html5Qr) {
-    try {
-      await html5Qr.stop();
-      await html5Qr.clear();
-    } catch (e) {}
-    html5Qr = null;
-  }
-}
-
-
-function beep() {
-  if (!successSound) return;
-  successSound.currentTime = 0;
-  successSound.play().catch(() => {});
-}
-
-function warningBeep() {
-  if (!warningSound) return;
-  warningSound.currentTime = 0;
-  warningSound.play().catch(() => {});
-}
-
 </script>
 
 </body>
