@@ -108,6 +108,12 @@ button {
 </div>
 
 <script>
+let successSound = new Audio("https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg");
+let warningSound = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+
+successSound.preload = "auto";
+warningSound.preload = "auto";
+
 let lastScanTime = 0;
 const SCAN_DELAY = 1000; // 1 second
 
