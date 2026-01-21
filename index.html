@@ -123,6 +123,10 @@ button {
   <button class="gray" onclick="backToMain()">Back</button>
 </div>
 
+let lastScannedValue = null;
+let duplicateLockActive = false;
+
+  
 <script>
 /* -------------------- LOGGING -------------------- */
 function log(msg, color="#e5e7eb") {
@@ -242,19 +246,52 @@ async function stopScanner() {
 /* -------------------- SCAN HANDLING -------------------- */
 function onScanSuccess(text) {
   const now = Date.now();
+
+  // Basic debounce
   if (now - lastScanTime < SCAN_DELAY) return;
   lastScanTime = now;
 
-  if (currentSession.items.includes(text)) {
-    warningBeep();
-    if (!confirm("Duplicate detected.\nOK = Save | Cancel = Skip")) return;
-  } else {
-    beep();
+  // 🔒 Lock same QR until a new one appears
+  if (text === lastScannedValue && duplicateLockActive) {
+    return;
   }
 
+  // New QR detected → unlock
+  if (text !== lastScannedValue) {
+    duplicateLockActive = false;
+  }
+
+  // Duplicate check in session
+  if (currentSession.items.includes(text)) {
+    warningBeep();
+
+    duplicateLockActive = true;
+    lastScannedValue = text;
+
+    const choice = confirm(
+      "Duplicate item detected.\n\nOK = Continue & Save\nCancel = Skip"
+    );
+
+    if (!choice) {
+      logInfo("Duplicate skipped");
+      return;
+    }
+
+    logInfo("Duplicate accepted");
+  } else {
+    beep();
+    logInfo("New item scanned");
+  }
+
+  // Save scan
   currentSession.items.push(text);
   renderList();
+
+  // Lock current value until QR changes
+  lastScannedValue = text;
+  duplicateLockActive = true;
 }
+
 
 function renderList() {
   const list = document.getElementById("scanList");
