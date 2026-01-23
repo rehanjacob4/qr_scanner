@@ -1,11 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
+<meta charset="UTF-8" />
 <title>Item QR Code Scanner</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-<script src="https://unpkg.com/html5-qrcode"></script>
+<!-- ZXing -->
+<script src="https://unpkg.com/@zxing/library@latest"></script>
+
+<!-- XLSX -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <style>
@@ -15,59 +18,66 @@ body {
   background: #f4f6f8;
 }
 header {
-  text-align: center;
-  font-size: 24px;
-  font-weight: bold;
-  padding: 15px;
   background: #1f2937;
   color: white;
+  text-align: center;
+  font-size: 22px;
+  padding: 14px;
+  font-weight: bold;
 }
-.screen {
-  display: none;
-  padding: 15px;
-}
-.active {
-  display: block;
-}
+.screen { display: none; padding: 15px; }
+.active { display: block; }
+
 button {
   width: 100%;
-  padding: 18px;
-  margin: 10px 0;
-  font-size: 18px;
+  padding: 16px;
+  margin: 8px 0;
+  font-size: 17px;
   border-radius: 8px;
   border: none;
   cursor: pointer;
 }
-.primary { background: #2563eb; color: white; }
-.secondary { background: #10b981; color: white; }
-.danger { background: #dc2626; color: white; }
-.gray { background: #6b7280; color: white; }
+.primary { background:#2563eb; color:white; }
+.secondary { background:#10b981; color:white; }
+.gray { background:#6b7280; color:white; }
+.danger { background:#dc2626; color:white; }
+
+video {
+  width: 100%;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
 
 .list {
-  max-height: 250px;
-  overflow-y: auto;
-  background: white;
-  padding: 10px;
-  border-radius: 6px;
+  background:white;
+  border-radius:6px;
+  padding:10px;
+  max-height:220px;
+  overflow-y:auto;
 }
 .item {
-  padding: 8px;
-  border-bottom: 1px solid #e5e7eb;
+  padding:6px;
+  border-bottom:1px solid #e5e7eb;
+  font-size:14px;
 }
-.small-btn {
-  padding: 10px;
-  font-size: 16px;
+
+#duplicateBox {
+  display:none;
+  background:#fff3cd;
+  border:1px solid #facc15;
+  padding:10px;
+  border-radius:6px;
+  margin-bottom:10px;
 }
 
 #logBox {
-  margin-top: 15px;
-  background: #111827;
-  color: #e5e7eb;
-  padding: 10px;
-  border-radius: 6px;
-  font-size: 14px;
-  max-height: 160px;
-  overflow-y: auto;
+  background:#111827;
+  color:#e5e7eb;
+  padding:10px;
+  border-radius:6px;
+  font-size:13px;
+  max-height:160px;
+  overflow-y:auto;
 }
 </style>
 </head>
@@ -84,142 +94,80 @@ button {
 
   <div id="logBox">
     <b>System Log</b>
-    <div id="logMessages"></div>
+    <div id="log"></div>
   </div>
 </div>
 
 <!-- NEW SESSION -->
 <div id="newSession" class="screen">
-  <button class="primary" onclick="startSession('camera')">Use Camera (Mobile)</button>
-  <button class="secondary" onclick="startSession('scanner')">Use Barcode Scanner (PC)</button>
-  <button class="gray" onclick="backToMain()">Back</button>
+  <button class="primary" onclick="startSession()">Use Camera (Mobile)</button>
+  <button class="gray" onclick="showScreen('mainMenu')">Back</button>
 </div>
 
-<!-- SESSION SCREEN -->
+<!-- SESSION -->
 <div id="sessionScreen" class="screen">
-  
   <h3 id="sessionTitle"></h3>
 
-  <div id="reader" style="width:100%;"></div>
+  <video id="video" muted playsinline></video>
 
-  <button class="secondary small-btn" onclick="manualEntry()">Add Manual Entry</button>
+  <div id="duplicateBox">
+    <b>Duplicate detected</b>
+    <button class="primary" onclick="acceptDuplicate()">Record Duplicate</button>
+    <button class="gray" onclick="skipDuplicate()">Ignore</button>
+  </div>
 
   <div class="list" id="scanList"></div>
 
+  <button class="secondary" onclick="manualEntry()">Add Manual Entry</button>
   <button class="primary" onclick="saveSession()">Save & Exit</button>
   <button class="danger" onclick="cancelSession()">Cancel Session</button>
 </div>
 
-<div id="duplicateBox" style="
-  display:none;
-  background:#fff3cd;
-  border:1px solid #facc15;
-  padding:12px;
-  border-radius:6px;
-  margin:10px 0;
-">
-  <b>Duplicate detected</b>
-  <div style="margin-top:8px;">
-    <button class="primary small-btn" onclick="acceptDuplicate()">Record Duplicate</button>
-    <button class="gray small-btn" onclick="skipDuplicate()">Ignore & Continue</button>
-  </div>
-</div>
-
-<!-- SAVED SESSIONS -->
+<!-- SAVED -->
 <div id="savedSessions" class="screen">
   <div id="sessionsList"></div>
-  <button class="gray" onclick="backToMain()">Back</button>
+  <button class="gray" onclick="showScreen('mainMenu')">Back</button>
 </div>
 
 <!-- SETTINGS -->
 <div id="settings" class="screen">
-  <label>Separator Symbol:</label>
-  <input id="separator" style="width:100%;padding:12px;font-size:18px;">
+  <label>Separator Symbol</label>
+  <input id="separator" style="width:100%;padding:12px;font-size:16px;" />
   <button class="primary" onclick="saveSettings()">Save</button>
-  <button class="gray" onclick="backToMain()">Back</button>
+  <button class="gray" onclick="showScreen('mainMenu')">Back</button>
 </div>
 
-  
 <script>
-
-let scanLocked = false;
-let lastQrValue = null;
-let activeQrValue = null; // QR currently being processed / locked
-let lastScannedValue = null;
-let lastAcceptedScanTime = 0;
-let lastProcessedQr = null;
-let pendingDuplicate = null;
-
-const SAME_QR_COOLDOWN = 2000; // 2 seconds
-  
-/* -------------------- LOGGING -------------------- */
-function log(msg, color="#e5e7eb") {
-  const box = document.getElementById("logMessages");
-  if (!box) return;
-  const div = document.createElement("div");
-  div.style.color = color;
-  div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-  box.prepend(div);
-}
-const logInfo = m => log("ℹ️ " + m, "#60a5fa");
-const logOk   = m => log("✅ " + m, "#10b981");
-const logErr  = m => log("❌ " + m, "#ef4444");
-
-/* -------------------- GLOBAL ERROR TRACKING -------------------- */
-window.addEventListener("error", e => logErr("JS Error: " + e.message));
-window.addEventListener("unhandledrejection", e => logErr("Promise Rejection"));
-
-/* -------------------- STATE -------------------- */
-let html5Qr = null;
+/* ---------------- STATE ---------------- */
 let currentSession = null;
 let separator = localStorage.getItem("separator") || "_";
 document.getElementById("separator").value = separator;
 
-let successSound = null;
-let warningSound = null;
-let audioReady = false;
+let lastProcessedQr = null;
+let pendingDuplicate = null;
 
-let lastScanTime = 0;
-const SCAN_DELAY = 800;
+/* ZXing */
+const codeReader = new ZXing.BrowserMultiFormatReader();
 
-/* -------------------- AUDIO -------------------- */
-  
-function initAudio() {
-  if (audioReady) return;
-  successSound = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
-  warningSound = new Audio("https://actions.google.com/sounds/v1/cartoon/instrument_strum.ogg");
-  audioReady = true;
-  logOk("Audio initialized");
+/* ---------------- LOG ---------------- */
+function log(msg, color="#e5e7eb") {
+  const d = document.createElement("div");
+  d.style.color = color;
+  d.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  document.getElementById("log").prepend(d);
 }
-function beep() {
-  if (!successSound) return;
-  successSound.currentTime = 0;
-  successSound.play().catch(()=>{});
-}
-function warningBeep() {
-  if (!warningSound) return;
-  warningSound.currentTime = 0;
-  warningSound.play().catch(()=>{});
-}
+const logInfo = m => log("ℹ️ " + m, "#60a5fa");
+const logOk   = m => log("✅ " + m, "#10b981");
 
-/* -------------------- NAVIGATION -------------------- */
-async function showScreen(id) {
-  logInfo("Switching to: " + id);
-  initAudio();
-  await stopScanner();
-
+/* ---------------- NAV ---------------- */
+function showScreen(id) {
   document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
   document.getElementById(id).classList.add("active");
-
-  logOk("Screen loaded: " + id);
-}
-function backToMain() {
-  showScreen("mainMenu");
 }
 
-/* -------------------- SESSION -------------------- */
-function startSession(mode) {
-  const name = prompt("Enter Session Name:");
+/* ---------------- SESSION ---------------- */
+function startSession() {
+  const name = prompt("Enter Session Name");
   if (!name) return;
 
   currentSession = {
@@ -233,93 +181,67 @@ function startSession(mode) {
 
   showScreen("sessionScreen");
   document.getElementById("scanList").innerHTML = "";
-
-  if (mode === "camera") startCamera();
+  startCamera();
 }
 
-/* -------------------- CAMERA -------------------- */
-function startCamera() {
-  if (html5Qr) return; // prevent double start
+/* ---------------- ZXING SCANNER ---------------- */
+async function startCamera() {
+  logInfo("Starting ZXing scanner");
 
-  html5Qr = new Html5Qrcode("reader");
-  html5Qr.start(
-    { facingMode: { exact: "environment" } },
-    { fps: 15, qrbox: 250 },
-    onScanSuccess,
-    onScanFailure
+  const devices = await codeReader.listVideoInputDevices();
+  const backCam = devices.find(d => d.label.toLowerCase().includes("back")) || devices[0];
+
+  codeReader.decodeFromVideoDevice(
+    backCam.deviceId,
+    "video",
+    (result, err) => {
+      if (result) handleScan(result.text);
+      if (err && err.name === "NotFoundException") {
+        lastProcessedQr = null; // QR removed
+      }
+    }
   );
 }
 
-function onScanFailure() {
-  if (lastProcessedQr !== null && pendingDuplicate === null) {
-    lastProcessedQr = null;
-    logInfo("QR removed – ready for next scan");
-  }
-}
-
- 
-async function stopScanner() {
-  if (!html5Qr) return;
-  try {
-    await html5Qr.stop();
-    await html5Qr.clear();
-    logOk("Scanner stopped");
-  } catch {
-    logErr("Scanner stop failed");
-  }
-  html5Qr = null;
-}
-
-function showRemoveQrMessage() {
-  logInfo("Please remove QR code from camera to continue scanning");
-}
-
-  
-/* -------------------- SCAN HANDLING -------------------- */
-function onScanSuccess(text) {
-  // Ignore same QR still in frame
+/* ---------------- SCAN HANDLING ---------------- */
+function handleScan(text) {
   if (text === lastProcessedQr) return;
 
   lastProcessedQr = text;
 
-  // Duplicate detected
   if (currentSession.items.includes(text)) {
-    warningBeep();
     pendingDuplicate = text;
-
     document.getElementById("duplicateBox").style.display = "block";
-    logInfo("Duplicate detected – waiting for user action");
+    logInfo("Duplicate detected");
     return;
   }
 
-  // New scan
-  beep();
-  currentSession.items.push(text);
-  renderList();
-  logOk("Item scanned");
+  recordValue(text);
 }
 
-function acceptDuplicate() {
-  if (!pendingDuplicate) return;
-
-  currentSession.items.push(pendingDuplicate);
+function recordValue(val) {
+  currentSession.items.push(val);
   renderList();
-  beep();
-  logOk("Duplicate recorded");
+  logOk("Item recorded");
+}
 
-  clearDuplicateState();
+/* ---------------- DUPLICATE UI ---------------- */
+function acceptDuplicate() {
+  recordValue(pendingDuplicate);
+  clearDuplicate();
 }
 
 function skipDuplicate() {
   logInfo("Duplicate skipped");
-  clearDuplicateState();
+  clearDuplicate();
 }
 
-function clearDuplicateState() {
+function clearDuplicate() {
   pendingDuplicate = null;
   document.getElementById("duplicateBox").style.display = "none";
-} 
-  
+}
+
+/* ---------------- LIST ---------------- */
 function renderList() {
   const list = document.getElementById("scanList");
   list.innerHTML = "";
@@ -331,28 +253,22 @@ function renderList() {
   });
 }
 
-async function manualEntry() {
-  if (html5Qr) await html5Qr.pause(true);
-  const v = prompt("Enter QR value:");
-  if (v) {
-    currentSession.items.push(v);
-    renderList();
-    beep();
-  }
-  if (html5Qr) await html5Qr.resume();
+/* ---------------- MANUAL ---------------- */
+function manualEntry() {
+  const v = prompt("Enter QR value manually");
+  if (v) recordValue(v);
 }
 
-/* -------------------- STORAGE -------------------- */
+/* ---------------- STORAGE ---------------- */
 function saveSession() {
-  const sessions = JSON.parse(localStorage.getItem("sessions") || "[]");
-  sessions.push(currentSession);
-  localStorage.setItem("sessions", JSON.stringify(sessions));
-  logOk("Session saved");
-  backToMain();
+  const s = JSON.parse(localStorage.getItem("sessions") || "[]");
+  s.push(currentSession);
+  localStorage.setItem("sessions", JSON.stringify(s));
+  showScreen("mainMenu");
 }
 
 function cancelSession() {
-  if (confirm("All data will be lost. Continue?")) backToMain();
+  if (confirm("Discard this session?")) showScreen("mainMenu");
 }
 
 function showSavedSessions() {
@@ -360,30 +276,24 @@ function showSavedSessions() {
   const box = document.getElementById("sessionsList");
   box.innerHTML = "";
 
-  const sessions = JSON.parse(localStorage.getItem("sessions") || "[]");
-  sessions.forEach((s,i) => {
+  const s = JSON.parse(localStorage.getItem("sessions") || "[]");
+  s.forEach((x,i) => {
     const d = document.createElement("div");
     d.className = "item";
     d.innerHTML = `
-      <b>${s.name}</b> (${s.items.length})
+      <b>${x.name}</b> (${x.items.length})
       <br>
-      <button onclick="openSession(${i})">Open</button>
       <button onclick="exportSession(${i})">Export</button>
-      <button onclick="deleteSession(${i})">Delete</button>`;
+      <button onclick="deleteSession(${i})">Delete</button>
+    `;
     box.appendChild(d);
   });
 }
 
-function openSession(i) {
-  currentSession = JSON.parse(localStorage.getItem("sessions"))[i];
-  showScreen("sessionScreen");
-  renderList();
-}
-
 function deleteSession(i) {
-  const sessions = JSON.parse(localStorage.getItem("sessions"));
-  sessions.splice(i,1);
-  localStorage.setItem("sessions", JSON.stringify(sessions));
+  const s = JSON.parse(localStorage.getItem("sessions"));
+  s.splice(i,1);
+  localStorage.setItem("sessions", JSON.stringify(s));
   showSavedSessions();
 }
 
@@ -395,14 +305,13 @@ function exportSession(i) {
   XLSX.utils.book_append_sheet(wb, ws, s.name);
   XLSX.writeFile(wb, `${s.name}.xlsx`);
 }
-  
-/* -------------------- SETTINGS -------------------- */
+
+/* ---------------- SETTINGS ---------------- */
 function saveSettings() {
   separator = document.getElementById("separator").value;
   localStorage.setItem("separator", separator);
   alert("Settings saved");
 }
-
 </script>
 
 </body>
